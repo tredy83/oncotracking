@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ONCOTRACKING</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+
+<div id="app">
+    <div class="flex items-center justify-center h-screen">
+        <div class="text-center">
+            <div class="text-4xl mb-4">⏳</div>
+            <p class="text-xl font-bold">Caricamento ONCOTRACKING...</p>
+        </div>
+    </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+<script>
+const firebaseConfig = {
+    apiKey: "AIzaSyAeuckvJxS9HHsEBO0GTumUj0P_0Agc6E0",
+    authDomain: "oncotracking.firebaseapp.com",
+    projectId: "oncotracking",
+    storageBucket: "oncotracking.firebasestorage.app",
+    messagingSenderId: "481368228030",
+    appId: "1:481368228030:web:b3306b3fc19a8d68c61eef"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+const APP = {
+    view: 'home',
+    personnel: [],
+    activities: [],
+    timeLogs: [],
+    selectedPerson: null,
+    activeTab: 'IN_ORARIO',
+    search: '',
+    menuOpen: false,
+    loading: true
+};
+
+function initFirebase() {
+    db.collection('personnel').where('attivo', '==', true).onSnapshot(function(snapshot) {
+        APP.personnel = [];
+        snapshot.forEach(function(doc) {
+            APP.personnel.push({ id: doc.id, ...doc.data() });
+        });
+        APP.loading = false;
+        render();
+    });
+
+    db.collection('activities').where('attiva', '==', true).onSnapshot(function(snapshot) {
+        APP.activities = [];
+        snapshot.forEach(function(doc) {
+            APP.activities.push({ id: doc.id, ...doc.data() });
+        });
+        render();
+    });
+
+    db.collection('timeLogs').orderBy('startTime', 'desc').limit(100).onSnapshot(function(snapshot) {
+        APP.timeLogs = [];
+        snapshot.forEach(function(doc) {
+            const data = doc.data();
+            APP.timeLogs.push({
+                id: doc.id,
+                personnelId: data.personnelId,
+                activityId: data.activityId,
+                categoria: data.categoria,
+                startTime: data.startTime.toDate().toISOString(),
+                endTime: data.endTime ? data.endTime.toDate().toISOString() : null,
+                durationMinutes: data.durationMinutes,
+                note: data.note || '',
+                source: data.source
+            });
+        });
+        render();
+    });
+}
+
+async function seedInitialData() {
+    const personnelSnapshot = await db.collection('personnel').get();
+    if (personnelSnapshot.empty) {
+        const batch = db.batch();
+        const personnel = [
+            {nome: 'Anna', cognome: 'M.'}, {nome: 'Elena', cognome: 'M.'}, {nome: 'Alessio', cognome: 'S.'},
+            {nome: 'Federica', cognome: 'L.'}, {nome: 'Benedetta', cognome: 'U.'}, {nome: 'Ilaria', cognome: 'C.'},
+            {nome: 'Andrea', cognome: 'S.'}, {nome: 'Andrea', cognome: 'M.'}, {nome: 'Monia', cognome: 'S.'},
+            {nome: 'Martina', cognome: 'M.'}, {nome: 'Massimo', cognome: 'G.'}, {nome: 'Giuseppe', cognome: 'B.'},
+            {nome: 'Laura', cognome: 'M.'}, {nome: 'Alessandra', cognome: 'S.'}
+        ];
+        personnel.forEach(function(p) {
+            const ref = db.collection('personnel').doc();
+            batch.set(ref, { nome: p.nome, cognome: p.cognome, attivo: true });
+        });
+        await batch.commit();
+    }
+
+    const activitiesSnapshot = await db.collection('activities').get();
+    if (activitiesSnapshot.empty) {
+        const batch = db.batch();
+        const activities = [
+            'Consulenze', 'Prime Visite', 'Estrazione Cartelle Cliniche', 'Preparazione Ambulatori',
+            'Preparazione Prime Visite', 'Discussione Casi PDTA', 'Chiusura PAC', 'Chiusura SDO',
+            'Partecipazione PDTA', 'Attività Referenza PDTA', 'Attività Studio/Aggiornamento'
+        ];
+        activities.forEach(function(name) {
+            const ref = db.collection('activities').doc();
+            batch.set(ref, { nome: name, attiva: true });
+        });
+        await batch.commit();
+    }
+}
+
+function render() {
+    if (APP.loading) return;
+    const app = document.getElementById('app');
+    if (APP.view === 'home') app.innerHTML = renderHome();
+    else if (APP.view === 'person') app.innerHTML = renderPerson();
+    else if (APP.view === 'manual') app.innerHTML = renderManual();
+    else if (APP.view === 'history') app.innerHTML = renderHistory();
+    else if (APP.view === 'reports') app.innerHTML = renderReports();
+    else if (APP.view === 'admin-personnel') app.innerHTML = renderAdminPersonnel();
+    else if (APP.view === 'admin-activities') app.innerHTML = renderAdminActivities();
+    startTimers();
+}
+
+function renderHeader(title, showBack) {
+    let h = '<div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%)" class="text-white p-4 sticky top-0 z-50 shadow-lg"><div class="flex items-center justify-between"><div class="flex items-center gap-3">';
+    if (showBack) h += '<button onclick="goHome()" class="text-2xl font-bold">←</button>';
+    h += '<h1 class="text-xl font-bold">' + title + '</h1></div><button onclick="toggleMenu()" class="text-2xl">☰</button></div>';
+    if (APP.menuOpen) {
+        h += '<div class="mt-4 bg-white text-gray-800 rounded-lg p-2">';
+        h += '<button onclick="setView(\'home\')" class="block w-full text-left p-3 hover:bg-gray-100 rounded">🏠 Home</button>';
+        h += '<button onclick="setView(\'reports\')" class="block w-full text-left p-3 hover:bg-gray-100 rounded">📊 Report</button>';
+        h += '<button onclick="setView(\'admin-personnel\')" class="block w-full text-left p-3 hover:bg-gray-100 rounded">👥 Gestione Personale</button>';
+        h += '<button onclick="setView(\'admin-activities\')" class="block w-full text-left p-3 hover:bg-gray-100 rounded">📋 Gestione Attività</button></div>';
+    }
+    h += '</div>';
+    return h;
+}
+
+function renderHome() {
+    const filtered = APP.personnel.filter(function(p) {
+        return p.attivo && (APP.search === '' || (p.nome + ' ' + p.cognome).toLowerCase().indexOf(APP.search.toLowerCase()) >= 0);
+    });
+    let h = renderHeader('ONCOTRACKING', false);
+    h += '<div class="p-4 pb-20"><input type="text" placeholder="Cerca..." value="' + APP.search + '" oninput="updateSearch(this.value)" class="w-full p-3 mb-4 border-2 rounded-lg text-lg">';
+    for (let i = 0; i < filtered.length; i++) {
+        const p = filtered[i];
+        const log = APP.timeLogs.find(function(l) { return l.personnelId === p.id && !l.endTime; });
+        const act = log ? APP.activities.find(function(a) { return a.id === log.activityId; }) : null;
+        h += '<div onclick="selectPerson(\'' + p.id + '\')" class="bg-white p-4 rounded-lg shadow mb-3 cursor-pointer ' + (log ? 'border-2 border-green-500' : '') + '"><div class="flex justify-between items-center"><div><h3 class="text-xl font-bold">' + p.nome + ' ' + p.cognome + '</h3>';
+        if (log && act) h += '<p class="text-green-600 font-bold mt-2">⏱ ' + act.nome + '</p>';
+        h += '</div>';
+        if (log) h += '<span class="bg-green-500 text-white px-3 py-1 rounded-full text-sm">ATTIVO</span>';
+        h += '</div></div>';
+    }
+    if (filtered.length === 0) h += '<p class="text-center text-gray-500 mt-8">Nessun risultato</p>';
+    h += '</div>';
+    return h;
+}
+
+function renderPerson() {
+    const p = APP.personnel.find(function(x) { return x.id === APP.selectedPerson; });
+    if (!p) return renderHome();
+    const log = APP.timeLogs.find(function(l) { return l.personnelId === p.id && !l.endTime; });
+    let h = renderHeader(p.nome + ' ' + p.cognome, true);
+    h += '<div class="p-4 pb-20">';
+    if (log) {
+        h += '<div class="bg-green-500 text-white p-4 rounded-lg mb-4"><p class="text-sm">Timer in corso</p><p class="text-2xl font-bold" id="timer-' + log.id + '">00:00:00</p><button onclick="stopTimer(\'' + log.id + '\')" class="mt-2 bg-white text-green-600 px-6 py-2 rounded-lg font-bold">STOP</button></div>';
+    }
+    h += '<div class="flex gap-2 mb-4"><button onclick="setTab(\'IN_ORARIO\')" class="flex-1 py-3 rounded-lg font-bold ' + (APP.activeTab === 'IN_ORARIO' ? 'bg-blue-600 text-white' : 'bg-gray-200') + '">In Orario</button><button onclick="setTab(\'FUORI_ORARIO\')" class="flex-1 py-3 rounded-lg font-bold ' + (APP.activeTab === 'FUORI_ORARIO' ? 'bg-purple-600 text-white' : 'bg-gray-200') + '">Fuori Orario</button></div>';
+    for (let i = 0; i < APP.activities.length; i++) {
+        const a = APP.activities[i];
+        if (!a.attiva) continue;
+        const isActive = log && log.activityId === a.id;
+        h += '<button onclick="' + (!isActive ? 'startTimer(\'' + p.id + '\',\'' + a.id + '\',\'' + APP.activeTab + '\')' : '') + '" class="w-full p-4 mb-3 rounded-lg text-left font-bold text-lg ' + (isActive ? 'bg-green-500 text-white' : 'bg-white border-2') + '">' + a.nome + '</button>';
+    }
+    h += '<button onclick="setView(\'manual\')" class="w-full bg-orange-500 text-white py-4 rounded-lg font-bold mt-4">➕ Inserimento Manuale</button>';
+    h += '<button onclick="setView(\'history\')" class="w-full bg-gray-700 text-white py-4 rounded-lg font-bold mt-2">📋 Storico</button></div>';
+    return h;
+}
+
+function renderManual() {
+    let h = renderHeader('Inserimento Manuale', true);
+    h += '<div class="p-4"><form onsubmit="submitManual(event); return false;" class="bg-white p-4 rounded-lg space-y-4">';
+    h += '<select name="personnelId" required class="w-full p-3 border-2 rounded-lg"><option value="">Seleziona persona...</option>';
+    for (let i = 0; i < APP.personnel.length; i++) {
+        const p = APP.personnel[i];
+        if (p.attivo) h += '<option value="' + p.id + '" ' + (p.id === APP.selectedPerson ? 'selected' : '') + '>' + p.nome + ' ' + p.cognome + '</option>';
+    }
+    h += '</select><select name="activityId" required class="w-full p-3 border-2 rounded-lg"><option value="">Seleziona attività...</option>';
+    for (let i = 0; i < APP.activities.length; i++) {
+        const a = APP.activities[i];
+        if (a.attiva) h += '<option value="' + a.id + '">' + a.nome + '</option>';
+    }
+    h += '</select><select name="categoria" required class="w-full p-3 border-2 rounded-lg"><option value="IN_ORARIO">In Orario</option><option value="FUORI_ORARIO">Fuori Orario</option></select>';
+    const today = new Date().toISOString().split('T')[0];
+    h += '<input type="date" name="date" required value="' + today + '" max="' + today + '" class="w-full p-3 border-2 rounded-lg"><div class="grid grid-cols-2 gap-4"><input type="time" name="startTime" required class="w-full p-3 border-2 rounded-lg"><input type="time" name="endTime" required class="w-full p-3 border-2 rounded-lg"></div><textarea name="note" placeholder="Note (opzionale)" class="w-full p-3 border-2 rounded-lg" rows="3"></textarea><button type="submit" class="w-full bg-green-600 text-white py-3 rounded-lg font-bold">Salva</button></form></div>';
+    return h;
+}
+
+function renderHistory() {
+    const p = APP.personnel.find(function(x) { return x.id === APP.selectedPerson; });
+    const logs = APP.timeLogs.filter(function(l) { return l.personnelId === APP.selectedPerson && l.endTime; }).reverse();
+    let h = renderHeader('Storico: ' + p.nome + ' ' + p.cognome, true);
+    h += '<div class="p-4">';
+    if (logs.length === 0) h += '<p class="text-center text-gray-500 mt-8">Nessuna attività completata</p>';
+    else {
+        for (let i = 0; i < logs.length; i++) {
+            const log = logs[i];
+            const act = APP.activities.find(function(a) { return a.id === log.activityId; });
+            const hh = Math.floor(log.durationMinutes / 60);
+            const m = log.durationMinutes % 60;
+            const date = new Date(log.startTime);
+            h += '<div class="bg-white p-4 rounded-lg shadow mb-3"><h3 class="font-bold">' + (act ? act.nome : 'Attività eliminata') + '</h3><p class="text-sm text-gray-600">' + date.toLocaleDateString('it-IT') + ' • ' + log.categoria.replace('_', ' ') + '</p><p class="text-green-600 font-bold mt-2">' + hh + 'h ' + m + 'm</p>';
+            if (log.note) h += '<p class="text-sm mt-2">' + log.note + '</p>';
+            h += '</div>';
+        }
+    }
+    h += '</div>';
+    return h;
+}
+
+function renderReports() {
+    const stats = {};
+    for (let i = 0; i < APP.timeLogs.length; i++) {
+        const log = APP.timeLogs[i];
+        if (!log.endTime) continue;
+        const p = APP.personnel.find(function(x) { return x.id === log.personnelId; });
+        if (!p) continue;
+        const key = p.nome + ' ' + p.cognome;
+        if (!stats[key]) stats[key] = { minutes: 0, count: 0 };
+        stats[key].minutes += log.durationMinutes;
+        stats[key].count++;
+    }
+    let h = renderHeader('Report', true);
+    h += '<div class="p-4"><div class="bg-white p-4 rounded-lg shadow"><h3 class="font-bold mb-4">Totali per Persona</h3>';
+    const keys = Object.keys(stats);
+    if (keys.length === 0) h += '<p class="text-gray-500">Nessun dato disponibile</p>';
+    else {
+        for (let i = 0; i < keys.length; i++) {
+            const name = keys[i];
+            const data = stats[name];
+            const hh = Math.floor(data.minutes / 60);
+            const m = data.minutes % 60;
+            h += '<div class="flex justify-between py-2 border-b"><span class="font-semibold">' + name + '</span><div class="text-right"><p class="text-green-600 font-bold">' + hh + 'h ' + m + 'm</p><p class="text-sm text-gray-600">' + data.count + ' attività</p></div></div>';
+        }
+    }
+    h += '</div><button onclick="alert(\'Export Excel in sviluppo\')" class="w-full bg-blue-600 text-white py-4 rounded-lg font-bold mt-4">📥 Esporta Excel</button></div>';
+    return h;
+}
+
+function renderAdminPersonnel() {
+    let h = renderHeader('Gestione Personale', true);
+    h += '<div class="p-4"><form onsubmit="addPerson(event); return false;" class="bg-white p-4 rounded-lg shadow mb-4 space-y-3"><h3 class="font-bold">Aggiungi Persona</h3><input type="text" name="nome" placeholder="Nome" required class="w-full p-3 border-2 rounded-lg"><input type="text" name="cognome" placeholder="Cognome" required class="w-full p-3 border-2 rounded-lg"><button type="submit" class="w-full bg-green-600 text-white py-3 rounded-lg font-bold">Aggiungi</button></form>';
+    h += '<div id="all-personnel"></div></div>';
+    loadAllPersonnel();
+    return h;
+}
+
+function renderAdminActivities() {
+    let h = renderHeader('Gestione Attività', true);
+    h += '<div class="p-4"><form onsubmit="addActivity(event); return false;" class="bg-white p-4 rounded-lg shadow mb-4 space-y-3"><h3 class="font-bold">Aggiungi Attività</h3><input type="text" name="nome" placeholder="Nome attività" required class="w-full p-3 border-2 rounded-lg"><p class="text-sm text-gray-600">Disponibile in entrambe le categorie</p><button type="submit" class="w-full bg-green-600 text-white py-3 rounded-lg font-bold">Aggiungi</button></form>';
+    h += '<div id="all-activities"></div></div>';
+    loadAllActivities();
+    return h;
+}
+
+function loadAllPersonnel() {
+    db.collection('personnel').get().then(function(snapshot) {
+        let h = '';
+        snapshot.forEach(function(doc) {
+            const p = { id: doc.id, ...doc.data() };
+            h += '<div class="bg-white p-4 rounded-lg shadow mb-3 ' + (!p.attivo ? 'opacity-50' : '') + '"><div class="flex justify-between items-center"><div><h3 class="font-bold">' + p.nome + ' ' + p.cognome + '</h3></div><button onclick="togglePersonActive(\'' + p.id + '\',' + p.attivo + ')" class="px-4 py-2 rounded-lg font-bold ' + (p.attivo ? 'bg-red-500' : 'bg-green-500') + ' text-white">' + (p.attivo ? 'Disattiva' : 'Riattiva') + '</button></div></div>';
+        });
+        document.getElementById('all-personnel').innerHTML = h;
+    });
+}
+
+function loadAllActivities() {
+    db.collection('activities').get().then(function(snapshot) {
+        let h = '';
+        snapshot.forEach(function(doc) {
+            const a = { id: doc.id, ...doc.data() };
+            h += '<div class="bg-white p-4 rounded-lg shadow mb-3 ' + (!a.attiva ? 'opacity-50' : '') + '"><div class="flex justify-between items-center"><h3 class="font-bold">' + a.nome + '</h3><button onclick="toggleActivityActive(\'' + a.id + '\',' + a.attiva + ')" class="px-4 py-2 rounded-lg font-bold ' + (a.attiva ? 'bg-red-500' : 'bg-green-500') + ' text-white">' + (a.attiva ? 'Disattiva' : 'Riattiva') + '</button></div></div>';
+        });
+        document.getElementById('all-activities').innerHTML = h;
+    });
+}
+
+function startTimers() {
+    const logs = APP.timeLogs.filter(function(l) { return !l.endTime; });
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        const el = document.getElementById('timer-' + log.id);
+        if (el) {
+            setInterval(function() {
+                const start = new Date(log.startTime);
+                const diff = Math.floor((new Date() - start) / 1000);
+                const h = Math.floor(diff / 3600);
+                const m = Math.floor((diff % 3600) / 60);
+                const s = diff % 60;
+                el.textContent = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+            }, 1000);
+        }
+    }
+}
+
+window.setView = function(view) { APP.view = view; APP.menuOpen = false; render(); };
+window.goHome = function() { APP.view = 'home'; APP.selectedPerson = null; render(); };
+window.toggleMenu = function() { APP.menuOpen = !APP.menuOpen; render(); };
+window.updateSearch = function(val) { APP.search = val; render(); };
+window.selectPerson = function(id) { APP.selectedPerson = id; APP.view = 'person'; render(); };
+window.setTab = function(tab) { APP.activeTab = tab; render(); };
+
+window.startTimer = async function(personnelId, activityId, categoria) {
+    const existing = APP.timeLogs.find(function(l) { return l.personnelId === personnelId && !l.endTime; });
+    if (existing) {
+        if (!confirm('Vuoi chiudere l\'attività attiva?')) return;
+        await window.stopTimer(existing.id);
+    }
+    await db.collection('timeLogs').add({
+        personnelId: personnelId,
+        activityId: activityId,
+        categoria: categoria,
+        startTime: firebase.firestore.Timestamp.now(),
+        endTime: null,
+        durationMinutes: null,
+        note: '',
+        source: 'TIMER'
+    });
+};
+
+window.stopTimer = async function(logId) {
+    const log = APP.timeLogs.find(function(l) { return l.id === logId; });
+    const end = new Date();
+    const start = new Date(log.startTime);
+    const durationMinutes = Math.round((end - start) / 60000);
+    await db.collection('timeLogs').doc(logId).update({
+        endTime: firebase.firestore.Timestamp.now(),
+        durationMinutes: durationMinutes
+    });
+};
+
+window.submitManual = async function(e) {
+    e.preventDefault();
+    const form = e.target;
+    const startDT = new Date(form.date.value + 'T' + form.startTime.value);
+    const endDT = new Date(form.date.value + 'T' + form.endTime.value);
+    if (endDT <= startDT) { alert('Orario fine deve essere dopo inizio'); return; }
+    await db.collection('timeLogs').add({
+        personnelId: form.personnelId.value,
+        activityId: form.activityId.value,
+        categoria: form.categoria.value,
+        startTime: firebase.firestore.Timestamp.fromDate(startDT),
+        endTime: firebase.firestore.Timestamp.fromDate(endDT),
+        durationMinutes: Math.round((endDT - startDT) / 60000),
+        note: form.note.value,
+        source: 'MANUAL'
+    });
+    APP.view = 'person';
+    render();
+};
+
+window.addPerson = async function(e) {
+    e.preventDefault();
+    const form = e.target;
+    await db.collection('personnel').add({ nome: form.nome.value, cognome: form.cognome.value, attivo: true });
+    form.reset();
+    render();
+};
+
+window.togglePersonActive = async function(id, currentStatus) {
+    await db.collection('personnel').doc(id).update({ attivo: !currentStatus });
+    loadAllPersonnel();
+};
+
+window.addActivity = async function(e) {
+    e.preventDefault();
+    const form = e.target;
+    await db.collection('activities').add({ nome: form.nome.value, attiva: true });
+    form.reset();
+    render();
+};
+
+window.toggleActivityActive = async function(id, currentStatus) {
+    await db.collection('activities').doc(id).update({ attiva: !currentStatus });
+    loadAllActivities();
+};
+
+seedInitialData().then(function() { initFirebase(); });
+</script>
+</body>
+</html>
