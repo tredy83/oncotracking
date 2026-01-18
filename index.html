@@ -100,6 +100,31 @@ async function seedInitialData() {
             batch.set(ref, { nome: p.nome, cognome: p.cognome, attivo: true });
         });
         await batch.commit();
+    } else {
+        // Controllo duplicati - rimuove persone duplicate mantenendo solo la prima
+        const seenNames = {};
+        const duplicates = [];
+        
+        personnelSnapshot.forEach(function(doc) {
+            const data = doc.data();
+            const key = data.nome + '|' + data.cognome;
+            
+            if (seenNames[key]) {
+                duplicates.push(doc.id);
+            } else {
+                seenNames[key] = doc.id;
+            }
+        });
+        
+        // Elimina duplicati se presenti
+        if (duplicates.length > 0) {
+            const batch = db.batch();
+            duplicates.forEach(function(id) {
+                batch.delete(db.collection('personnel').doc(id));
+            });
+            await batch.commit();
+            console.log('Rimossi ' + duplicates.length + ' duplicati');
+        }
     }
 
     const activitiesSnapshot = await db.collection('activities').get();
@@ -364,11 +389,49 @@ function renderAdminActivities() {
 function loadAllPersonnel() {
     db.collection('personnel').get().then(function(snapshot) {
         let h = '';
+        const allPersonnel = [];
         snapshot.forEach(function(doc) {
-            const p = { id: doc.id, ...doc.data() };
-            h += '<div class="bg-white p-4 rounded-lg shadow mb-3 ' + (!p.attivo ? 'opacity-50' : '') + '"><div class="flex justify-between items-center"><div><h3 class="font-bold">' + p.nome + ' ' + p.cognome + '</h3></div><button onclick="togglePersonActive(\'' + p.id + '\',' + p.attivo + ')" class="px-4 py-2 rounded-lg font-bold ' + (p.attivo ? 'bg-red-500' : 'bg-green-500') + ' text-white">' + (p.attivo ? 'Disattiva' : 'Riattiva') + '</button></div></div>';
+            allPersonnel.push({ id: doc.id, ...doc.data() });
         });
-        document.getElementById('all-personnel').innerHTML = h;
+        
+        allPersonnel.sort(function(a, b) {
+            const nameA = a.nome + ' ' + a.cognome;
+            const nameB = b.nome + ' ' + b.cognome;
+            return nameA.localeCompare(nameB);
+        });
+        
+        db.collection('timeLogs').get().then(function(logsSnapshot) {
+            const personnelWithLogs = {};
+            logsSnapshot.forEach(function(doc) {
+                const log = doc.data();
+                personnelWithLogs[log.personnelId] = true;
+            });
+            
+            for (let i = 0; i < allPersonnel.length; i++) {
+                const p = allPersonnel[i];
+                const hasLogs = personnelWithLogs[p.id];
+                
+                h += '<div class="bg-white p-4 rounded-lg shadow mb-3 ' + (!p.attivo ? 'opacity-50' : '') + '">';
+                h += '<div class="flex justify-between items-center">';
+                h += '<div><h3 class="font-bold">' + p.nome + ' ' + p.cognome + '</h3>';
+                if (hasLogs) h += '<p class="text-xs text-gray-500">Ha attività registrate</p>';
+                h += '</div>';
+                h += '<div class="flex gap-2">';
+                
+                if (hasLogs) {
+                    h += '<button onclick="togglePersonActive(\'' + p.id + '\',' + p.attivo + ')" class="px-4 py-2 rounded-lg font-bold ' + (p.attivo ? 'bg-orange-500' : 'bg-green-500') + ' text-white">';
+                    h += p.attivo ? 'Disattiva' : 'Riattiva';
+                    h += '</button>';
+                } else {
+                    h += '<button onclick="deletePerson(\'' + p.id + '\')" class="px-4 py-2 rounded-lg font-bold bg-red-600 text-white">';
+                    h += 'Elimina';
+                    h += '</button>';
+                }
+                
+                h += '</div></div></div>';
+            }
+            document.getElementById('all-personnel').innerHTML = h;
+        });
     });
 }
 
@@ -480,6 +543,20 @@ window.addPerson = async function(e) {
 window.togglePersonActive = async function(id, currentStatus) {
     await db.collection('personnel').doc(id).update({ attivo: !currentStatus });
     loadAllPersonnel();
+};
+
+window.deletePerson = async function(id) {
+    if (!confirm('Sei sicuro di voler ELIMINARE definitivamente questa persona? Questa azione NON può essere annullata!')) {
+        return;
+    }
+    
+    try {
+        await db.collection('personnel').doc(id).delete();
+        alert('Persona eliminata con successo');
+        loadAllPersonnel();
+    } catch (error) {
+        alert('Errore durante l\'eliminazione: ' + error.message);
+    }
 };
 
 window.addActivity = async function(e) {
