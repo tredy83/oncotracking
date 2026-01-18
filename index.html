@@ -202,8 +202,19 @@ function renderManual() {
         if (a.attiva) h += '<option value="' + a.id + '">' + a.nome + '</option>';
     }
     h += '</select><select name="categoria" required class="w-full p-3 border-2 rounded-lg"><option value="IN_ORARIO">In Orario</option><option value="FUORI_ORARIO">Fuori Orario</option></select>';
+    
     const today = new Date().toISOString().split('T')[0];
-    h += '<input type="date" name="date" required value="' + today + '" max="' + today + '" class="w-full p-3 border-2 rounded-lg"><div class="grid grid-cols-2 gap-4"><input type="time" name="startTime" required class="w-full p-3 border-2 rounded-lg"><input type="time" name="endTime" required class="w-full p-3 border-2 rounded-lg"></div><textarea name="note" placeholder="Note (opzionale)" class="w-full p-3 border-2 rounded-lg" rows="3"></textarea><button type="submit" class="w-full bg-green-600 text-white py-3 rounded-lg font-bold">Salva</button></form></div>';
+    h += '<div><label class="block font-bold mb-2 text-gray-700">📅 Selezionare Data</label>';
+    h += '<input type="date" name="date" required value="' + today + '" max="' + today + '" class="w-full p-3 border-2 border-blue-400 rounded-lg bg-blue-50 text-lg font-semibold"></div>';
+    
+    h += '<div class="grid grid-cols-2 gap-4">';
+    h += '<div><label class="block font-bold mb-2 text-gray-700">⏰ Ora Inizio</label>';
+    h += '<input type="time" name="startTime" required class="w-full p-3 border-2 border-green-400 rounded-lg bg-green-50 text-lg font-semibold"></div>';
+    h += '<div><label class="block font-bold mb-2 text-gray-700">⏱️ Ora Fine</label>';
+    h += '<input type="time" name="endTime" required class="w-full p-3 border-2 border-red-400 rounded-lg bg-red-50 text-lg font-semibold"></div>';
+    h += '</div>';
+    
+    h += '<textarea name="note" placeholder="Note (opzionale)" class="w-full p-3 border-2 rounded-lg" rows="3"></textarea><button type="submit" class="w-full bg-green-600 text-white py-3 rounded-lg font-bold">Salva</button></form></div>';
     return h;
 }
 
@@ -220,9 +231,12 @@ function renderHistory() {
             const hh = Math.floor(log.durationMinutes / 60);
             const m = log.durationMinutes % 60;
             const date = new Date(log.startTime);
-            h += '<div class="bg-white p-4 rounded-lg shadow mb-3"><h3 class="font-bold">' + (act ? act.nome : 'Attività eliminata') + '</h3><p class="text-sm text-gray-600">' + date.toLocaleDateString('it-IT') + ' • ' + log.categoria.replace('_', ' ') + '</p><p class="text-green-600 font-bold mt-2">' + hh + 'h ' + m + 'm</p>';
+            h += '<div class="bg-white p-4 rounded-lg shadow mb-3"><div class="flex justify-between items-start">';
+            h += '<div class="flex-1"><h3 class="font-bold">' + (act ? act.nome : 'Attività eliminata') + '</h3><p class="text-sm text-gray-600">' + date.toLocaleDateString('it-IT') + ' • ' + log.categoria.replace('_', ' ') + '</p><p class="text-green-600 font-bold mt-2">' + hh + 'h ' + m + 'm</p>';
             if (log.note) h += '<p class="text-sm mt-2">' + log.note + '</p>';
             h += '</div>';
+            h += '<button onclick="deleteLog(\'' + log.id + '\')" class="ml-3 bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg font-bold flex items-center gap-1"><span>🗑️</span><span>Elimina</span></button>';
+            h += '</div></div>';
         }
     }
     h += '</div>';
@@ -479,6 +493,19 @@ window.addActivity = async function(e) {
 window.toggleActivityActive = async function(id, currentStatus) {
     await db.collection('activities').doc(id).update({ attiva: !currentStatus });
     loadAllActivities();
+};
+
+window.deleteLog = async function(logId) {
+    if (!confirm('Sei sicuro di voler eliminare questa attività? Questa azione non può essere annullata.')) {
+        return;
+    }
+    
+    try {
+        await db.collection('timeLogs').doc(logId).delete();
+        alert('Attività eliminata con successo');
+    } catch (error) {
+        alert('Errore durante l\'eliminazione: ' + error.message);
+    }
 };
 
 function exportExcel() {
