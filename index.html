@@ -418,14 +418,14 @@ function loadAllPersonnel() {
                 h += '</div>';
                 h += '<div class="flex gap-2">';
                 
+                h += '<button onclick="editPerson(\'' + p.id + '\',\'' + p.nome + '\',\'' + p.cognome + '\')" class="px-4 py-2 rounded-lg font-bold bg-blue-500 text-white">✏️ Modifica</button>';
+                
                 if (hasLogs) {
                     h += '<button onclick="togglePersonActive(\'' + p.id + '\',' + p.attivo + ')" class="px-4 py-2 rounded-lg font-bold ' + (p.attivo ? 'bg-orange-500' : 'bg-green-500') + ' text-white">';
                     h += p.attivo ? 'Disattiva' : 'Riattiva';
                     h += '</button>';
                 } else {
-                    h += '<button onclick="deletePerson(\'' + p.id + '\')" class="px-4 py-2 rounded-lg font-bold bg-red-600 text-white">';
-                    h += 'Elimina';
-                    h += '</button>';
+                    h += '<button onclick="deletePerson(\'' + p.id + '\')" class="px-4 py-2 rounded-lg font-bold bg-red-600 text-white">Elimina</button>';
                 }
                 
                 h += '</div></div></div>';
@@ -557,6 +557,24 @@ window.deletePerson = async function(id) {
     } catch (error) {
         alert('Errore durante l\'eliminazione: ' + error.message);
     }
+};
+
+window.editPerson = function(id, currentNome, currentCognome) {
+    const newNome = prompt('Modifica Nome:', currentNome);
+    if (newNome === null || newNome.trim() === '') return;
+    
+    const newCognome = prompt('Modifica Cognome:', currentCognome);
+    if (newCognome === null || newCognome.trim() === '') return;
+    
+    db.collection('personnel').doc(id).update({
+        nome: newNome.trim(),
+        cognome: newCognome.trim()
+    }).then(function() {
+        alert('Persona modificata con successo');
+        loadAllPersonnel();
+    }).catch(function(error) {
+        alert('Errore durante la modifica: ' + error.message);
+    });
 };
 
 window.addActivity = async function(e) {
