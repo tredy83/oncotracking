@@ -19,6 +19,7 @@
 
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script>
 const firebaseConfig = {
@@ -230,30 +231,103 @@ function renderHistory() {
 
 function renderReports() {
     const stats = {};
+    const inOrarioStats = {};
+    const fuoriOrarioStats = {};
+    
     for (let i = 0; i < APP.timeLogs.length; i++) {
         const log = APP.timeLogs[i];
         if (!log.endTime) continue;
         const p = APP.personnel.find(function(x) { return x.id === log.personnelId; });
         if (!p) continue;
         const key = p.nome + ' ' + p.cognome;
+        
         if (!stats[key]) stats[key] = { minutes: 0, count: 0 };
         stats[key].minutes += log.durationMinutes;
         stats[key].count++;
+        
+        if (log.categoria === 'IN_ORARIO') {
+            if (!inOrarioStats[key]) inOrarioStats[key] = { minutes: 0, count: 0 };
+            inOrarioStats[key].minutes += log.durationMinutes;
+            inOrarioStats[key].count++;
+        } else {
+            if (!fuoriOrarioStats[key]) fuoriOrarioStats[key] = { minutes: 0, count: 0 };
+            fuoriOrarioStats[key].minutes += log.durationMinutes;
+            fuoriOrarioStats[key].count++;
+        }
     }
+    
     let h = renderHeader('Report', true);
-    h += '<div class="p-4"><div class="bg-white p-4 rounded-lg shadow"><h3 class="font-bold mb-4">Totali per Persona</h3>';
+    h += '<div class="p-4">';
+    
+    h += '<div class="bg-blue-50 border-2 border-blue-500 p-4 rounded-lg mb-4">';
+    h += '<h3 class="font-bold text-blue-800 mb-2">📊 Totali Complessivi</h3>';
     const keys = Object.keys(stats);
-    if (keys.length === 0) h += '<p class="text-gray-500">Nessun dato disponibile</p>';
-    else {
+    if (keys.length > 0) {
+        let totalMinutes = 0;
+        let totalCount = 0;
+        for (let i = 0; i < keys.length; i++) {
+            totalMinutes += stats[keys[i]].minutes;
+            totalCount += stats[keys[i]].count;
+        }
+        const th = Math.floor(totalMinutes / 60);
+        const tm = totalMinutes % 60;
+        h += '<p class="text-2xl font-bold text-blue-600">' + th + 'h ' + tm + 'm</p>';
+        h += '<p class="text-sm text-gray-600">' + totalCount + ' attività totali</p>';
+    }
+    h += '</div>';
+    
+    h += '<div class="grid grid-cols-2 gap-4 mb-4">';
+    h += '<div class="bg-green-50 border-2 border-green-500 p-3 rounded-lg">';
+    h += '<h4 class="font-bold text-green-800 text-sm mb-2">Extra IN Orario</h4>';
+    const inKeys = Object.keys(inOrarioStats);
+    if (inKeys.length > 0) {
+        let inTotal = 0;
+        for (let i = 0; i < inKeys.length; i++) inTotal += inOrarioStats[inKeys[i]].minutes;
+        const ih = Math.floor(inTotal / 60);
+        const im = inTotal % 60;
+        h += '<p class="text-xl font-bold text-green-600">' + ih + 'h ' + im + 'm</p>';
+    } else {
+        h += '<p class="text-gray-500">Nessun dato</p>';
+    }
+    h += '</div>';
+    
+    h += '<div class="bg-purple-50 border-2 border-purple-500 p-3 rounded-lg">';
+    h += '<h4 class="font-bold text-purple-800 text-sm mb-2">Extra FUORI Orario</h4>';
+    const outKeys = Object.keys(fuoriOrarioStats);
+    if (outKeys.length > 0) {
+        let outTotal = 0;
+        for (let i = 0; i < outKeys.length; i++) outTotal += fuoriOrarioStats[outKeys[i]].minutes;
+        const oh = Math.floor(outTotal / 60);
+        const om = outTotal % 60;
+        h += '<p class="text-xl font-bold text-purple-600">' + oh + 'h ' + om + 'm</p>';
+    } else {
+        h += '<p class="text-gray-500">Nessun dato</p>';
+    }
+    h += '</div></div>';
+    
+    h += '<div class="bg-white p-4 rounded-lg shadow mb-4"><h3 class="font-bold mb-4">Dettaglio per Persona</h3>';
+    if (keys.length === 0) {
+        h += '<p class="text-gray-500">Nessun dato disponibile</p>';
+    } else {
         for (let i = 0; i < keys.length; i++) {
             const name = keys[i];
             const data = stats[name];
             const hh = Math.floor(data.minutes / 60);
             const m = data.minutes % 60;
-            h += '<div class="flex justify-between py-2 border-b"><span class="font-semibold">' + name + '</span><div class="text-right"><p class="text-green-600 font-bold">' + hh + 'h ' + m + 'm</p><p class="text-sm text-gray-600">' + data.count + ' attività</p></div></div>';
+            
+            const inData = inOrarioStats[name] || { minutes: 0, count: 0 };
+            const outData = fuoriOrarioStats[name] || { minutes: 0, count: 0 };
+            
+            h += '<div class="py-3 border-b"><div class="flex justify-between mb-2"><span class="font-semibold">' + name + '</span><div class="text-right"><p class="font-bold">' + hh + 'h ' + m + 'm</p><p class="text-xs text-gray-600">' + data.count + ' attività</p></div></div>';
+            h += '<div class="flex gap-4 text-sm"><span class="text-green-600">In orario: ' + Math.floor(inData.minutes/60) + 'h ' + (inData.minutes%60) + 'm (' + inData.count + ')</span>';
+            h += '<span class="text-purple-600">Fuori orario: ' + Math.floor(outData.minutes/60) + 'h ' + (outData.minutes%60) + 'm (' + outData.count + ')</span></div></div>';
         }
     }
-    h += '</div><button onclick="alert(\'Export Excel in sviluppo\')" class="w-full bg-blue-600 text-white py-4 rounded-lg font-bold mt-4">📥 Esporta Excel</button></div>';
+    h += '</div>';
+    
+    h += '<button onclick="exportExcel()" class="w-full bg-blue-600 text-white py-4 rounded-lg font-bold mb-2">📥 Esporta Report Excel Completo</button>';
+    h += '<p class="text-xs text-center text-gray-500">Include: Log dettagliato, Riepilogo per persona, Riepilogo per attività</p>';
+    h += '</div>';
     return h;
 }
 
@@ -406,6 +480,173 @@ window.toggleActivityActive = async function(id, currentStatus) {
     await db.collection('activities').doc(id).update({ attiva: !currentStatus });
     loadAllActivities();
 };
+
+function exportExcel() {
+    const completedLogs = APP.timeLogs.filter(function(l) { return l.endTime; });
+    
+    if (completedLogs.length === 0) {
+        alert('Nessun dato da esportare');
+        return;
+    }
+    
+    const wb = XLSX.utils.book_new();
+    
+    // FOGLIO 1: Log Dettagliato
+    const logData = [];
+    logData.push(['Data', 'Persona', 'Attività', 'Categoria', 'Ora Inizio', 'Ora Fine', 'Durata (ore)', 'Note', 'Modalità']);
+    
+    for (let i = 0; i < completedLogs.length; i++) {
+        const log = completedLogs[i];
+        const person = APP.personnel.find(function(p) { return p.id === log.personnelId; });
+        const activity = APP.activities.find(function(a) { return a.id === log.activityId; });
+        
+        const startDate = new Date(log.startTime);
+        const endDate = new Date(log.endTime);
+        
+        logData.push([
+            startDate.toLocaleDateString('it-IT'),
+            person ? person.nome + ' ' + person.cognome : 'N/D',
+            activity ? activity.nome : 'N/D',
+            log.categoria === 'IN_ORARIO' ? 'Extra in Orario' : 'Extra Fuori Orario',
+            startDate.toLocaleTimeString('it-IT', {hour: '2-digit', minute: '2-digit'}),
+            endDate.toLocaleTimeString('it-IT', {hour: '2-digit', minute: '2-digit'}),
+            (log.durationMinutes / 60).toFixed(2),
+            log.note || '',
+            log.source === 'TIMER' ? 'Timer' : 'Manuale'
+        ]);
+    }
+    
+    const ws1 = XLSX.utils.aoa_to_sheet(logData);
+    ws1['!cols'] = [{wch:12},{wch:20},{wch:30},{wch:20},{wch:12},{wch:12},{wch:12},{wch:30},{wch:10}];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Log Dettagliato');
+    
+    // FOGLIO 2: Riepilogo per Persona
+    const personStats = {};
+    for (let i = 0; i < completedLogs.length; i++) {
+        const log = completedLogs[i];
+        const person = APP.personnel.find(function(p) { return p.id === log.personnelId; });
+        if (!person) continue;
+        
+        const key = person.nome + ' ' + person.cognome;
+        if (!personStats[key]) {
+            personStats[key] = {
+                inOrario: { minutes: 0, count: 0 },
+                fuoriOrario: { minutes: 0, count: 0 },
+                totale: { minutes: 0, count: 0 }
+            };
+        }
+        
+        if (log.categoria === 'IN_ORARIO') {
+            personStats[key].inOrario.minutes += log.durationMinutes;
+            personStats[key].inOrario.count++;
+        } else {
+            personStats[key].fuoriOrario.minutes += log.durationMinutes;
+            personStats[key].fuoriOrario.count++;
+        }
+        
+        personStats[key].totale.minutes += log.durationMinutes;
+        personStats[key].totale.count++;
+    }
+    
+    const personData = [];
+    personData.push(['Persona', 'Ore Extra in Orario', 'N° Attività in Orario', 'Ore Extra Fuori Orario', 'N° Attività Fuori Orario', 'Totale Ore', 'Totale Attività']);
+    
+    const personKeys = Object.keys(personStats).sort();
+    for (let i = 0; i < personKeys.length; i++) {
+        const name = personKeys[i];
+        const data = personStats[name];
+        personData.push([
+            name,
+            (data.inOrario.minutes / 60).toFixed(2),
+            data.inOrario.count,
+            (data.fuoriOrario.minutes / 60).toFixed(2),
+            data.fuoriOrario.count,
+            (data.totale.minutes / 60).toFixed(2),
+            data.totale.count
+        ]);
+    }
+    
+    // Riga totali
+    let totalInOrario = 0, totalFuoriOrario = 0, totalAll = 0;
+    let countInOrario = 0, countFuoriOrario = 0, countAll = 0;
+    for (let i = 0; i < personKeys.length; i++) {
+        const data = personStats[personKeys[i]];
+        totalInOrario += data.inOrario.minutes;
+        totalFuoriOrario += data.fuoriOrario.minutes;
+        totalAll += data.totale.minutes;
+        countInOrario += data.inOrario.count;
+        countFuoriOrario += data.fuoriOrario.count;
+        countAll += data.totale.count;
+    }
+    
+    personData.push([
+        'TOTALE',
+        (totalInOrario / 60).toFixed(2),
+        countInOrario,
+        (totalFuoriOrario / 60).toFixed(2),
+        countFuoriOrario,
+        (totalAll / 60).toFixed(2),
+        countAll
+    ]);
+    
+    const ws2 = XLSX.utils.aoa_to_sheet(personData);
+    ws2['!cols'] = [{wch:20},{wch:20},{wch:20},{wch:22},{wch:24},{wch:15},{wch:18}];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Riepilogo Persone');
+    
+    // FOGLIO 3: Riepilogo per Attività
+    const activityStats = {};
+    for (let i = 0; i < completedLogs.length; i++) {
+        const log = completedLogs[i];
+        const activity = APP.activities.find(function(a) { return a.id === log.activityId; });
+        if (!activity) continue;
+        
+        const key = activity.nome;
+        if (!activityStats[key]) {
+            activityStats[key] = {
+                inOrario: { minutes: 0, count: 0 },
+                fuoriOrario: { minutes: 0, count: 0 },
+                totale: { minutes: 0, count: 0 }
+            };
+        }
+        
+        if (log.categoria === 'IN_ORARIO') {
+            activityStats[key].inOrario.minutes += log.durationMinutes;
+            activityStats[key].inOrario.count++;
+        } else {
+            activityStats[key].fuoriOrario.minutes += log.durationMinutes;
+            activityStats[key].fuoriOrario.count++;
+        }
+        
+        activityStats[key].totale.minutes += log.durationMinutes;
+        activityStats[key].totale.count++;
+    }
+    
+    const activityData = [];
+    activityData.push(['Attività', 'Ore in Orario', 'N° in Orario', 'Ore Fuori Orario', 'N° Fuori Orario', 'Totale Ore', 'Totale N°']);
+    
+    const activityKeys = Object.keys(activityStats).sort();
+    for (let i = 0; i < activityKeys.length; i++) {
+        const name = activityKeys[i];
+        const data = activityStats[name];
+        activityData.push([
+            name,
+            (data.inOrario.minutes / 60).toFixed(2),
+            data.inOrario.count,
+            (data.fuoriOrario.minutes / 60).toFixed(2),
+            data.fuoriOrario.count,
+            (data.totale.minutes / 60).toFixed(2),
+            data.totale.count
+        ]);
+    }
+    
+    const ws3 = XLSX.utils.aoa_to_sheet(activityData);
+    ws3['!cols'] = [{wch:30},{wch:15},{wch:15},{wch:18},{wch:18},{wch:15},{wch:12}];
+    XLSX.utils.book_append_sheet(wb, ws3, 'Riepilogo Attività');
+    
+    // Genera e scarica il file
+    const today = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, 'ONCOTRACKING_Report_' + today + '.xlsx');
+}
 
 seedInitialData().then(function() { initFirebase(); });
 </script>
