@@ -255,13 +255,29 @@ function renderHistory() {
             const act = APP.activities.find(function(a) { return a.id === log.activityId; });
             const hh = Math.floor(log.durationMinutes / 60);
             const m = log.durationMinutes % 60;
-            const date = new Date(log.startTime);
-            h += '<div class="bg-white p-4 rounded-lg shadow mb-3"><div class="flex justify-between items-start">';
-            h += '<div class="flex-1"><h3 class="font-bold">' + (act ? act.nome : 'Attività eliminata') + '</h3><p class="text-sm text-gray-600">' + date.toLocaleDateString('it-IT') + ' • ' + log.categoria.replace('_', ' ') + '</p><p class="text-green-600 font-bold mt-2">' + hh + 'h ' + m + 'm</p>';
-            if (log.note) h += '<p class="text-sm mt-2">' + log.note + '</p>';
+            const startDate = new Date(log.startTime);
+            const endDate = new Date(log.endTime);
+            
+            h += '<div class="bg-white p-4 rounded-lg shadow mb-3">';
+            h += '<div class="flex justify-between items-start mb-3">';
+            h += '<div class="flex-1">';
+            h += '<h3 class="font-bold">' + (act ? act.nome : 'Attività eliminata') + '</h3>';
+            h += '<p class="text-sm text-gray-600">' + startDate.toLocaleDateString('it-IT') + ' • ' + log.categoria.replace('_', ' ') + '</p>';
             h += '</div>';
-            h += '<button onclick="deleteLog(\'' + log.id + '\')" class="ml-3 bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg font-bold flex items-center gap-1"><span>🗑️</span><span>Elimina</span></button>';
+            h += '<div class="flex gap-2">';
+            h += '<button onclick="editLog(\'' + log.id + '\')" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-lg font-bold flex items-center gap-1"><span>✏️</span><span>Modifica</span></button>';
+            h += '<button onclick="deleteLog(\'' + log.id + '\')" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg font-bold flex items-center gap-1"><span>🗑️</span><span>Elimina</span></button>';
             h += '</div></div>';
+            
+            h += '<div class="grid grid-cols-2 gap-3 text-sm mb-2">';
+            h += '<div class="bg-gray-50 p-2 rounded"><span class="text-gray-600">Inizio:</span> <span class="font-semibold">' + startDate.toLocaleTimeString('it-IT', {hour: '2-digit', minute: '2-digit'}) + '</span></div>';
+            h += '<div class="bg-gray-50 p-2 rounded"><span class="text-gray-600">Fine:</span> <span class="font-semibold">' + endDate.toLocaleTimeString('it-IT', {hour: '2-digit', minute: '2-digit'}) + '</span></div>';
+            h += '</div>';
+            
+            h += '<p class="text-green-600 font-bold text-lg">Durata: ' + hh + 'h ' + m + 'm</p>';
+            
+            if (log.note) h += '<p class="text-sm mt-2 text-gray-600">Note: ' + log.note + '</p>';
+            h += '</div>';
         }
     }
     h += '</div>';
@@ -674,6 +690,72 @@ window.deleteLog = async function(logId) {
         alert('Attività eliminata con successo');
     } catch (error) {
         alert('Errore durante l\'eliminazione: ' + error.message);
+    }
+};
+
+window.editLog = async function(logId) {
+    const log = APP.timeLogs.find(function(l) { return l.id === logId; });
+    if (!log) {
+        alert('Attività non trovata');
+        return;
+    }
+    
+    const startDate = new Date(log.startTime);
+    const endDate = new Date(log.endTime);
+    
+    // Chiedi nuova data
+    const newDateStr = prompt('Modifica Data (gg/mm/aaaa):', startDate.toLocaleDateString('it-IT'));
+    if (!newDateStr) return;
+    
+    // Chiedi nuovo orario inizio
+    const currentStartTime = startDate.toTimeString().substring(0, 5);
+    const newStartTime = prompt('Modifica Ora Inizio (HH:MM):', currentStartTime);
+    if (!newStartTime) return;
+    
+    // Chiedi nuovo orario fine
+    const currentEndTime = endDate.toTimeString().substring(0, 5);
+    const newEndTime = prompt('Modifica Ora Fine (HH:MM):', currentEndTime);
+    if (!newEndTime) return;
+    
+    // Valida formato orari
+    if (!/^\d{2}:\d{2}$/.test(newStartTime) || !/^\d{2}:\d{2}$/.test(newEndTime)) {
+        alert('Formato orario non valido. Usa HH:MM (es: 14:30)');
+        return;
+    }
+    
+    // Converti data da formato italiano a ISO
+    const dateParts = newDateStr.split('/');
+    if (dateParts.length !== 3) {
+        alert('Formato data non valido. Usa gg/mm/aaaa');
+        return;
+    }
+    
+    const isoDate = dateParts[2] + '-' + dateParts[1].padStart(2, '0') + '-' + dateParts[0].padStart(2, '0');
+    
+    // Crea nuovi timestamp
+    const newStartDateTime = new Date(isoDate + 'T' + newStartTime);
+    const newEndDateTime = new Date(isoDate + 'T' + newEndTime);
+    
+    // Valida che fine > inizio
+    if (newEndDateTime <= newStartDateTime) {
+        alert('L\'orario di fine deve essere successivo all\'orario di inizio');
+        return;
+    }
+    
+    // Calcola nuova durata
+    const newDurationMinutes = Math.round((newEndDateTime - newStartDateTime) / 60000);
+    
+    try {
+        await db.collection('timeLogs').doc(logId).update({
+            startTime: firebase.firestore.Timestamp.fromDate(newStartDateTime),
+            endTime: firebase.firestore.Timestamp.fromDate(newEndDateTime),
+            durationMinutes: newDurationMinutes,
+            updatedBy: 'manual-edit',
+            updatedAt: firebase.firestore.Timestamp.now()
+        });
+        alert('Attività modificata con successo!');
+    } catch (error) {
+        alert('Errore durante la modifica: ' + error.message);
     }
 };
 
